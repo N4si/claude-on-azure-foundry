@@ -1,0 +1,9 @@
+QUESTION_1: What HTTP status code should a REST API return when a client sends a request with a missing required field?
+
+QUESTION_2: A Python list comprehension `[x for x in range(10) if x % 2]` — what does it return and why?
+
+QUESTION_3: Explain the CAP theorem in one paragraph suitable for a job interview.
+
+QUESTION_4: What is the difference between a Kubernetes Deployment and a StatefulSet? When would you choose one over the other?
+
+QUESTION_5: A database query that takes 50ms in staging is taking 4 seconds in production. List the first three things you would check.

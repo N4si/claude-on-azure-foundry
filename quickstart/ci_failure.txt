@@ -1,0 +1,31 @@
+ERROR: tests/test_api.py::test_create_user FAILED
+----------------------------------------------------------------------
+FAILED tests/test_api.py::test_create_user - AssertionError: assert 422 == 201
+
+  File "tests/test_api.py", line 34, in test_create_user
+    response = client.post("/users", json=payload)
+    assert response.status_code == 201, f"Expected 201, got {response.status_code}"
+
+Response body:
+{
+  "detail": [
+    {
+      "loc": ["body", "email"],
+      "msg": "field required",
+      "type": "value_error.missing"
+    }
+  ]
+}
+
+Payload sent:
+{
+  "username": "alice",
+  "name": "Alice Smith"
+}
+
+Traceback (most recent call last):
+  File "app/routers/users.py", line 18, in create_user
+    db_user = User(username=body.username, email=body.email, name=body.name)
+AttributeError: 'UserCreate' object has no attribute 'email'
+
+FAILED in 0.31s

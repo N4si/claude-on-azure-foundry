@@ -1,0 +1,68 @@
+=== PRODUCTION INCIDENT — 2026-06-10 14:23 UTC ===
+Cluster: prod-us-east-2  |  Namespace: payments
+
+--- kubectl get pods -n payments ---
+NAME                            READY   STATUS             RESTARTS   AGE
+payments-api-7d8f9b6c4-xk2p9    0/1     CrashLoopBackOff   14         38m
+payments-api-7d8f9b6c4-mn4r1    0/1     CrashLoopBackOff   12         38m
+payments-api-7d8f9b6c4-qw7t5    1/1     Running            0          6m
+payments-worker-6c5d8f7b9-lp3x  1/1     Running            0          2h
+postgres-primary-0              1/1     Running            0          14d
+postgres-replica-0              1/1     Running            0          14d
+
+--- kubectl logs payments-api-7d8f9b6c4-xk2p9 --previous ---
+2026-06-10T14:22:51Z INFO  Starting payments-api v2.4.1
+2026-06-10T14:22:51Z INFO  Connecting to database host=postgres-primary port=5432
+2026-06-10T14:22:52Z ERROR Failed to acquire connection from pool after 30000ms
+2026-06-10T14:22:52Z ERROR psycopg2.OperationalError: FATAL: remaining connection slots are reserved for replication
+2026-06-10T14:22:52Z ERROR Pool exhausted: size=20 checked_out=20 overflow=0
+2026-06-10T14:22:52Z FATAL Unhandled exception — exiting
+Traceback (most recent call last):
+  File "app/main.py", line 42, in startup
+    await db.connect()
+  File "app/db.py", line 89, in connect
+    conn = await pool.acquire(timeout=30)
+asyncpg.exceptions.TooManyConnectionsError: sorry, too many clients already
+
+--- kubectl logs payments-api-7d8f9b6c4-mn4r1 --previous ---
+(identical stack trace — connection pool exhausted on startup)
+
+--- Datadog APM — payments-api — last 60 min ---
+14:00  p99_latency=42ms   error_rate=0.1%   rps=1840
+14:05  p99_latency=48ms   error_rate=0.2%   rps=1850
+14:10  p99_latency=61ms   error_rate=0.4%   rps=1860
+14:15  p99_latency=890ms  error_rate=3.1%   rps=1820  ← anomaly starts
+14:17  p99_latency=4200ms error_rate=18%    rps=1410
+14:19  p99_latency=9800ms error_rate=61%    rps=690
+14:21  p99_latency=N/A    error_rate=100%   rps=0     ← full outage
+14:27  p99_latency=220ms  error_rate=2.1%   rps=1200  ← partial recovery (1 pod)
+
+--- Nginx ingress access log sample (14:17–14:21) ---
+[14:17:03] POST /v1/payments 200 4312ms
+[14:17:04] POST /v1/payments 502 0ms
+[14:17:04] GET  /v1/health   502 0ms
+[14:17:09] POST /v1/payments 502 0ms
+[14:19:22] POST /v1/payments 502 0ms
+[14:21:01] POST /v1/payments 502 0ms
+
+--- kubectl describe hpa payments-api -n payments ---
+Min replicas:   3
+Max replicas:   10
+Current:        3 / desired: 3
+CPU utilization: 24% / target 70%
+
+--- postgres-primary connection stats (pg_stat_activity) ---
+2026-06-10T14:15:00Z  active=87   idle=12   idle_in_transaction=34   max_connections=100
+2026-06-10T14:17:00Z  active=91   idle=4    idle_in_transaction=38   max_connections=100
+2026-06-10T14:19:00Z  active=98   idle=0    idle_in_transaction=41   max_connections=100
+2026-06-10T14:21:00Z  active=99   idle=0    idle_in_transaction=42   max_connections=100 ← FULL
+
+--- Recent deployments ---
+2026-06-10T13:55Z  payments-api  2.4.0 → 2.4.1  (changed DB pool size: 10 → 20 per pod)
+2026-06-10T09:30Z  postgres-primary  config: max_connections unchanged at 100
+
+--- Alert history ---
+14:15  PagerDuty: p99 latency > 500ms (payments-api)
+14:17  PagerDuty: error rate > 10% (payments-api)
+14:17  PagerDuty: pod CrashLoopBackOff (payments-api-7d8f9b6c4-xk2p9)
+14:21  PagerDuty: payments-api fully down
